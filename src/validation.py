@@ -179,8 +179,8 @@ def flag_outside_own_district(
     points_m = points_gdf.to_crs("EPSG:32718")
 
     flags = pd.Series(False, index=df.index)
-    dist_by_ubigeo = {row[ubigeo_col_districts]: row.geometry.buffer(tolerancia_m)
-                       for _, row in districts_m.iterrows()}
+    dist_by_ubigeo = { row[ubigeo_col_districts]: row.geometry.buffer(tolerancia_m) 
+                      for _, row in districts_m.iterrows() if row.geometry is not None }
 
     for idx, row in points_m.iterrows():
         ubigeo = df.at[idx, col_ubigeo]

@@ -1,0 +1,18 @@
+{
+  "renipress": {
+    "status": "failed",
+    "error": "RENIPRESS no está disponible ni por API ni en caché local. Descarga manual: ir a https://www.datosabiertos.gob.pe/dataset/registro-nacional-de-entidades-prestadoras-de-servicios-de-salud-renipress y guardar el CSV en C:\\2026-II\\Data Science\\HW_02_202602\\data\\raw\\renipress.csv."
+  },
+  "centros_poblados": {
+    "status": "failed",
+    "error": "No hay archivo de centros poblados en caché y SIGMED no tiene un enlace de descarga configurado en config.md (fuentes.sigmed_centros_poblados.url_manual). Descarga manualmente desde https://sigmed.minedu.gob.pe/descargas/ y guarda el resultado en C:\\2026-II\\Data Science\\HW_02_202602\\data\\raw\\centros_poblados.gpkg. Este es un hallazgo legítimo sobre datos abiertos peruanos, no un fallo del pipeline -- documentarlo en el informe."
+  },
+  "osm_extract": {
+    "status": "ok",
+    "path": "C:\\2026-II\\Data Science\\HW_02_202602\\data\\raw\\peru-latest.osm.pbf"
+  },
+  "limites_administrativos": {
+    "status": "ok",
+    "path": "C:\\2026-II\\Data Science\\HW_02_202602\\data\\raw\\limites_distritales.geojson"
+  }
+}

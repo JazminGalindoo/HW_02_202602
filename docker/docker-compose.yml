@@ -6,7 +6,7 @@
 services:
   osrm-car:
     image: osrm/osrm-backend
-    command: osrm-routed --algorithm mld /data/peru-latest.osrm
+    command: osrm-routed --algorithm mld --max-table-size 1000000 /data/peru-latest.osrm
     volumes:
       - ../data/raw/osrm/car:/data
     ports:
@@ -15,7 +15,7 @@ services:
 
   osrm-bike:
     image: osrm/osrm-backend
-    command: osrm-routed --algorithm mld /data/peru-latest.osrm
+    command: osrm-routed --algorithm mld --max-table-size 1000000 /data/peru-latest.osrm
     volumes:
       - ../data/raw/osrm/bike:/data
     ports:
@@ -24,7 +24,7 @@ services:
 
   osrm-foot:
     image: osrm/osrm-backend
-    command: osrm-routed --algorithm mld /data/peru-latest.osrm
+    command: osrm-routed --algorithm mld --max-table-size 1000000 /data/peru-latest.osrm
     volumes:
       - ../data/raw/osrm/foot:/data
     ports:

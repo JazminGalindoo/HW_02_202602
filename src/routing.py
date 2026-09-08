@@ -313,8 +313,8 @@ def compute_od_matrix(
                     "id_demanda": demand_id,
                     "id_instalacion": facility_id,
                     "perfil": profile,
-                    "duracion_min": (dur_s / 60.0) if dur_s is not None else None,
-                    "distancia_km": (dist_m / 1000.0) if dist_m is not None else None,
+                    "duracion_min": (dur_s / 60.0) if dur_s is not None else np.nan,
+                    "distancia_km": (dist_m / 1000.0) if dist_m is not None else np.nan,
                     "enrutable": dur_s is not None,
                 })
 
@@ -359,7 +359,7 @@ def compare_walk_vs_drive(matrix_car: pd.DataFrame, matrix_foot: pd.DataFrame,
 
     comp = car_nearest.merge(foot_nearest, on="id_demanda", how="outer")
     comp["misma_instalacion"] = comp["instalacion_car"] == comp["instalacion_foot"]
-    comp["ratio_foot_car"] = comp["min_foot"] / comp["min_car"]
+    comp["ratio_foot_car"] = comp["min_foot"] / comp["min_car"].replace(0, np.nan)
 
     n = len(comp)
     n_dif = int((~comp["misma_instalacion"].fillna(False)).sum())
@@ -383,9 +383,9 @@ def compare_all_modes(matrices: dict[str, pd.DataFrame], facility_resolutive_ids
         wide = nearest if wide is None else wide.merge(nearest, on="id_demanda", how="outer")
 
     if "min_foot" in wide.columns and "min_car" in wide.columns:
-        wide["ratio_foot_car"] = wide["min_foot"] / wide["min_car"]
+        wide["ratio_foot_car"] = wide["min_foot"] / wide["min_car"].replace(0, np.nan)
     if "min_bike" in wide.columns and "min_car" in wide.columns:
-        wide["ratio_bike_car"] = wide["min_bike"] / wide["min_car"]
+        wide["ratio_bike_car"] = wide["min_bike"] / wide["min_car"].replace(0, np.nan)
     return wide
 
 

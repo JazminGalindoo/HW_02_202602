@@ -99,6 +99,7 @@ rutas:
   matriz_car: "data/processed/matriz_car.parquet"
   matriz_foot: "data/processed/matriz_foot.parquet"
   matriz_bike: "data/processed/matriz_bike.parquet"
+  matriz_foot_urbanos_todas: "data/processed/matriz_foot_urbanos_todas.parquet"
   snapping_report: "data/outputs/snapping_report.csv"
   quality_report: "data/outputs/data_quality_report.csv"
 
@@ -146,7 +147,7 @@ enrutamiento:
       car: 5000
       bike: 5001
       foot: 5002
-    timeout_s: 10
+    timeout_s: 120
     reintentos: 3
     espera_entre_reintentos_s: 2
   snapping:

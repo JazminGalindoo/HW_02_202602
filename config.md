@@ -88,6 +88,7 @@ rutas:
   processed: "data/processed"
   outputs: "data/outputs"
   logs: "logs"
+  report_tablas_dir: "report/tables"   # tablas .tex (booktabs) citadas en el informe, Fase 3+
 
   renipress_raw: "data/raw/renipress.csv"
   centros_poblados_raw: "data/raw/centros_poblados.gpkg"
@@ -102,6 +103,11 @@ rutas:
   matriz_foot_urbanos_todas: "data/processed/matriz_foot_urbanos_todas.parquet"
   snapping_report: "data/outputs/snapping_report.csv"
   quality_report: "data/outputs/data_quality_report.csv"
+
+  poblacion_cp_raw_dir: "data/raw/poblacion_centros_poblados"
+  poblacion_cp_processed: "data/processed/poblacion_centros_poblados.parquet"
+  demanda_con_poblacion: "data/processed/demanda_con_poblacion.parquet"
+  poblacion_match_report: "data/outputs/poblacion_match_report.csv"
 
 # ---------------------------------------------------------------------------
 # FUENTES (URLs / identificadores de dataset)
@@ -135,6 +141,20 @@ fuentes:
     url_distritos: "https://raw.githubusercontent.com/juaneladio/peru-geojson/master/peru_distrital_simple.geojson"
     fecha_descarga_cache: null
 
+  censo_poblacion_centros_poblados:
+    # INEI - "Directorio Nacional de Centros Poblados", Censos Nacionales 2017
+    # (publicación Lib1541). Es la fuente oficial de población POR centro
+    # poblado con su código INEI (CCPP) de 10 dígitos -- el mismo esquema que
+    # demanda_clean.CPINEI (ubigeo_distrito[6] + correlativo_cp[4]).
+    # No hay API/CSV único: el portal expone un .xlsx por departamento.
+    nombre: "INEI - Directorio Nacional de Centros Poblados, Censos Nacionales 2017 (Lib1541)"
+    portal: "https://www.inei.gob.pe/media/MenuRecursivo/publicaciones_digitales/Est/Lib1541/index.htm"
+    # {ubigeo_dep} = mismo valor de dos dígitos que departamentos.*.ubigeo_dep
+    # de arriba (p.ej. "20" -> Piura). Verificado manualmente para los 3
+    # departamentos del proyecto (20/05/16) el 2026-09-08 vía WebFetch.
+    url_template_departamento: "https://www.inei.gob.pe/media/MenuRecursivo/publicaciones_digitales/Est/Lib1541/cuadros/dpto{ubigeo_dep}.xlsx"
+    fecha_descarga_cache: null
+
 # ---------------------------------------------------------------------------
 # ENRUTAMIENTO (Fase 2)
 # ---------------------------------------------------------------------------
@@ -159,4 +179,19 @@ enrutamiento:
   fallback_no_enrutable:
     permitir_linea_recta: true
     factor_desvio_default: 1.35   # debe recalibrarse empíricamente (ver validate_deviation_factor en routing.py)
+
+# ---------------------------------------------------------------------------
+# MÉTRICAS (Fase 3)
+# ---------------------------------------------------------------------------
+metricas:
+  # Bordes (minutos) de las bandas de coverage_bands(): [30,60,120] produce
+  # las bandas "0-30","30-60","60-120",">120" pedidas en la consigna.
+  bandas_acceso_min: [30, 60, 120]
+  ranking_criticos:
+    n: 15
+    # Umbral opcional para excluir del ranking "peor" a unidades con
+    # población insignificante (ej. un centro poblado de 1 habitante con
+    # t_min alto no debería dominar el ranking de distritos críticos).
+    # 0 = sin filtro.
+    poblacion_minima: 0
 ```

@@ -1,0 +1,3 @@
+regla,n_marcados,pct_del_total,accion,justificacion
+sin_cpinei,6920,35.56,"mantenido con advertencia (poblacion_censada=NaN, excluido de agregados ponderados por población)",El centro poblado no proviene del Censo 2017 (FUENTE_INE distinta de INEI17); esta fuente de población no tiene forma de cubrirlo.
+cpinei_sin_match_en_censo,31,0.16,"mantenido con advertencia (poblacion_censada=NaN, excluido de agregados ponderados por población)","Trae CPINEI con formato de Censo 2017 pero no aparece en la tabla de población descargada; revisar manualmente si el conteo es alto (posible centro poblado dado de baja/fusionado, o error de digitación)."

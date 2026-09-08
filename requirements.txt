@@ -6,6 +6,7 @@ geopandas>=0.14
 shapely>=2.0
 pyarrow>=15.0          # backend Parquet/GeoParquet
 pyogrio>=0.7            # lectura de .gpkg de SIGMED
+openpyxl>=3.1           # lectura de .xlsx (INEI Directorio de Centros Poblados, Fase 3)
 streamlit>=1.35          # Fase 4
 plotly>=5.20              # choropleth + gráficos del dashboard
 pydeck>=0.9                # capa de instalaciones en el mapa

@@ -1,0 +1,2 @@
+spearman_rho,p_value,n,nota_causalidad
+0.14017238876787605,6.064723760099351e-23,4904,"Correlación observacional, NO causal: altitud y t_min son ambos efectos de la orografía (relieve -> densidad de red vial -> tiempo de viaje); no se puede aislar un efecto causal de la altitud en sí con estos datos. Ver docstring de access_vs_altitude() para el detalle de los confusores (densidad vial, dispersión poblacional, distancia a instalación resolutiva)."

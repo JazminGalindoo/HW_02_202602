@@ -51,6 +51,13 @@ print(f"Resolutivas en el set limpio: {limpio['es_resolutivo'].sum()}")
 
 # 5. Exportar
 reporte_calidad.to_csv("data/outputs/data_quality_report.csv", index=False)
-limpio.to_parquet("data/processed/ipress_clean.parquet", index=False)
+
+# Guardamos como GeoParquet real (con columna geometry y CRS), no solo
+# lon/lat sueltos -- así cumplimos el formato que pide la consigna.
+import geopandas as gpd
+limpio_gdf = gpd.GeoDataFrame(
+    limpio, geometry=gpd.points_from_xy(limpio["ESTE"], limpio["NORTE"]), crs="EPSG:4326"
+)
+limpio_gdf.to_parquet("data/processed/ipress_clean.parquet", index=False)
 print("\nGuardado: data/outputs/data_quality_report.csv")
-print("Guardado: data/processed/ipress_clean.parquet")
+print("Guardado: data/processed/ipress_clean.parquet (GeoParquet con geometry)")

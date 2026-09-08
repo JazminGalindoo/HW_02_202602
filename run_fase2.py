@@ -24,10 +24,18 @@ demanda_muestra = sample_demand_points(
 print(f"Puntos de demanda tras muestreo: {len(demanda_muestra)}")
 
 # 3. Snapping de la demanda muestreada al perfil "car" (reporte requerido)
-_, resumen_snap_car = snap_points(
-    demanda_muestra, col_lon="lon", col_lat="lat", col_id="id", profile="car", cfg=cfg
-)
-pd.DataFrame([resumen_snap_car]).to_csv("data/outputs/snapping_report.csv", index=False)
+resumenes_snap = []
+_, r = snap_points(demanda_muestra, col_lon="lon", col_lat="lat", col_id="id", profile="car", cfg=cfg)
+resumenes_snap.append({**r, "dataset": "demanda_muestreada"})
+_, r = snap_points(demanda_muestra, col_lon="lon", col_lat="lat", col_id="id", profile="bike", cfg=cfg)
+resumenes_snap.append({**r, "dataset": "demanda_muestreada"})
+_, r = snap_points(demanda_muestra, col_lon="lon", col_lat="lat", col_id="id", profile="foot", cfg=cfg)
+resumenes_snap.append({**r, "dataset": "demanda_muestreada"})
+_, r = snap_points(resolutivas, col_lon="lon", col_lat="lat", col_id="id", profile="car", cfg=cfg)
+resumenes_snap.append({**r, "dataset": "instalaciones_resolutivas"})
+pd.DataFrame(resumenes_snap).to_csv("data/outputs/snapping_report.csv", index=False)
+print("\n--- Reporte de snapping (auto/bici/pie en demanda, auto en instalaciones) ---")
+print(pd.DataFrame(resumenes_snap).to_string(index=False))
 
 # 4. Matrices: demanda muestreada x instalaciones RESOLUTIVAS, en los 3 perfiles
 print("\n=== Matriz CAR (demanda x resolutivas) ===")
@@ -96,3 +104,23 @@ print("\n--- Factor de desvío empírico (red / línea recta), perfil car ---")
 print(factor)
 
 print("\nListo. Todo guardado en data/processed/ y data/outputs/")
+# 7. Aplicar el fallback documentado a los puntos que NO se pudieron enrutar
+#    en auto -- en vez de dejarlos simplemente excluidos.
+from src.routing import nearest_facility, apply_fallback
+
+nearest_car = nearest_facility(matriz_car, resolutivas_ids)
+ids_con_ruta = set(nearest_car["id_demanda"])
+ids_todos = set(demanda_muestra["id"])
+ids_sin_ruta = list(ids_todos - ids_con_ruta)
+print(f"\nPuntos sin ruta en auto: {len(ids_sin_ruta)} de {len(ids_todos)}")
+
+nearest_car_completo = apply_fallback(
+    nearest_car, demanda_muestra, resolutivas,
+    unroutable_demand_ids=ids_sin_ruta,
+    col_id_demand="id", col_id_facility="id",
+    factor_desvio=factor["factor_mediano"],
+)
+nearest_car_completo.to_csv("data/outputs/nearest_car_con_fallback.csv", index=False)
+print(f"Guardado: data/outputs/nearest_car_con_fallback.csv "
+      f"({nearest_car_completo['estimado_por_fallback'].sum()} filas estimadas por fallback, "
+      f"marcadas explícitamente)")

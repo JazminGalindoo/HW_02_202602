@@ -1,2 +1,5 @@
-perfil,n_puntos,n_fallidos,pct_fallidos,distancia_media_snap_m,distancia_max_snap_m
-car,5002,1914,38.26,199.7,997.9
+perfil,n_puntos,n_fallidos,pct_fallidos,distancia_media_snap_m,distancia_max_snap_m,dataset
+car,5002,1914,38.26,199.7,997.9,demanda_muestreada
+bike,5002,1552,31.03,188.6,998.7,demanda_muestreada
+foot,5002,1551,31.01,188.6,998.7,demanda_muestreada
+car,58,0,0.0,15.0,65.1,instalaciones_resolutivas

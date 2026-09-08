@@ -1,0 +1,32 @@
+# docker-compose.yml — sirve los 3 perfiles OSRM en localhost.
+# Puertos deben coincidir con config.md > enrutamiento.osrm.puertos.
+# Corre `bash docker/build_osrm.sh` ANTES de levantar esto (necesita los
+# .osrm ya compilados en data/raw/osrm/<profile>/).
+
+services:
+  osrm-car:
+    image: osrm/osrm-backend
+    command: osrm-routed --algorithm mld /data/peru-latest.osrm
+    volumes:
+      - ../data/raw/osrm/car:/data
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  osrm-bike:
+    image: osrm/osrm-backend
+    command: osrm-routed --algorithm mld /data/peru-latest.osrm
+    volumes:
+      - ../data/raw/osrm/bike:/data
+    ports:
+      - "5001:5000"
+    restart: unless-stopped
+
+  osrm-foot:
+    image: osrm/osrm-backend
+    command: osrm-routed --algorithm mld /data/peru-latest.osrm
+    volumes:
+      - ../data/raw/osrm/foot:/data
+    ports:
+      - "5002:5000"
+    restart: unless-stopped

@@ -1,0 +1,24 @@
+# Datos crudos: se regeneran con `python -m src.acquisition`, no se versionan
+data/raw/*
+!data/raw/.gitkeep
+
+# Grafos OSRM compilados (pesados, se regeneran con docker/build_osrm.sh)
+data/raw/osrm/
+
+# Los processed y outputs SÍ se versionan (la consigna lo exige: matriz
+# precomputada y quality report deben estar en el repo para que el
+# dashboard funcione sin motor de enrutamiento activo).
+# No excluir data/processed/ ni data/outputs/ aquí.
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+*.part
+.DS_Store
+venv/
+.venv/
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc

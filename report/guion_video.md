@@ -8,7 +8,7 @@ Preparación antes de grabar:
 
 ```bash
 python run_fase4.py                 # deja los artefactos listos
-streamlit run app/dashboard.py      # abrir en el navegador, pestaña "Resumen"
+streamlit run app.py      # abrir en el navegador, pestaña "Resumen"
 ```
 
 ---
@@ -78,7 +78,35 @@ streamlit run app/dashboard.py      # abrir en el navegador, pestaña "Resumen"
 > establecimiento más cercano** según cómo se viaje. Un indicador de
 > accesibilidad que supone auto disponible describe a quien tiene auto.
 
-## 3:50 – 4:25 · La limitación que define el trabajo
+## 3:50 – 4:20 · El simulador: de la foto a la decisión
+
+**Pantalla:** pestaña **Simulador de escenarios**.
+
+> Hasta aquí describimos. Esta pestaña sirve para decidir. Se seleccionan uno
+> o más centros de salud I-3 o I-4 existentes y el panel recalcula la
+> cobertura como si tuvieran capacidad resolutiva. *(Seleccionar el primero
+> del ranking.)* Ascender el establecimiento de Bernal, en Sechura, acercaría
+> a 141 mil personas por debajo de la media hora: la cobertura sube de 71.8 a
+> 75.4 por ciento.
+>
+> Fíjense en el detalle que importa: los cinco mejores candidatos individuales
+> están todos alrededor de Sechura y sus ganancias suman 423 mil, pero
+> seleccionar los tres juntos da otra vez 141 mil. Se solapan: cubren a la
+> misma gente. Por eso el panel calcula el escenario combinado en vez de sumar
+> filas del ranking.
+>
+> Y si filtro por Loreto *(cambiar el filtro)*, la respuesta cambia por
+> completo: el mejor candidato es Caballococha, en Ramón Castilla, el distrito
+> peor rankeado del estudio. Un ranking ponderado por población siempre
+> favorece a la costa; a quién priorizar es una decisión política, y el panel
+> la hace explícita.
+>
+> Aviso honesto que está en pantalla: estos tiempos hacia los candidatos son
+> estimados con la calibración línea recta contra red, porque la matriz de
+> Fase 2 se calculó contra los hospitales, no contra los 607 candidatos.
+> Sirve para priorizar, no para prometer un tiempo exacto.
+
+## 4:20 – 4:40 · La limitación que define el trabajo
 
 **Pantalla:** pestaña **Mapa**, Loreto; o `fig_ranking_criticos.png`.
 
@@ -91,7 +119,7 @@ streamlit run app/dashboard.py      # abrir en el navegador, pestaña "Resumen"
 > más modelamiento vial, hace falta producir el dato que no existe, una red
 > fluvial navegable con velocidades por tipo de embarcación.
 
-## 4:25 – 5:00 · Reproducibilidad y cierre
+## 4:40 – 5:00 · Reproducibilidad y cierre
 
 **Pantalla:** el repositorio, `config.md`, y la salida de `pytest`.
 

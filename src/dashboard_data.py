@@ -8,7 +8,7 @@ Separación de responsabilidades (mismo criterio que metrics.py / export.py):
     export.py           escribe los outputs de Fase 3
     dashboard_data.py   LEE esos artefactos y los deja en la forma exacta
                         que esperan las funciones de metrics.py
-    app/dashboard.py    solo dibuja (Streamlit / Plotly)
+    app.py              solo dibuja (Streamlit / Plotly)
 
 Este módulo NO implementa ninguna métrica. Cuando el usuario del panel
 filtra por departamento o por zona, el panel vuelve a llamar a las MISMAS
@@ -18,13 +18,14 @@ en la capa de presentación, que es justamente el error que produce paneles
 que no cuadran con el informe.
 
 Tampoco importa `streamlit`: así es testeable con pytest sin levantar la app
-(ver tests/test_dashboard_data.py). El cacheo (`st.cache_data`) se aplica en
-`app/dashboard.py`, envolviendo estas funciones.
+(ver tests/test_dashboard.py). El cacheo (`st.cache_data`) se aplica en
+`app.py`, envolviendo estas funciones.
 
 Artefactos que consume (los genera `run_fase4.py`, ver su docstring):
     data/processed/puntos_dashboard.parquet        1 fila por centro poblado
     data/processed/instalaciones_dashboard.parquet 1 fila por IPRESS
     data/processed/distritos_3dep.geojson          polígonos de los 3 deptos
+    data/processed/mejoras_candidatos.parquet      insumo del simulador
     data/outputs/*.csv                             salidas de Fase 1/2/3
     logs/acquisition_summary.json                  trazabilidad de descargas
 """
@@ -58,6 +59,9 @@ if not logger.handlers:
 PUNTOS_DASHBOARD = "data/processed/puntos_dashboard.parquet"
 INSTALACIONES_DASHBOARD = "data/processed/instalaciones_dashboard.parquet"
 DISTRITOS_GEOJSON = "data/processed/distritos_3dep.geojson"
+MEJORAS_CANDIDATOS = "data/processed/mejoras_candidatos.parquet"
+CALIBRACION_RECTA = "data/outputs/calibracion_linea_recta.csv"
+CALIBRACION_PARES = "data/outputs/calibracion_pares_muestra.csv"
 RESUMEN_FASE4 = "data/outputs/resumen_fase4.json"
 
 # Columnas que produce access_time() y que, por tanto, NO deben viajar
@@ -145,6 +149,20 @@ def load_distritos_geojson(cfg: Optional[dict] = None) -> Optional[dict]:
         return None
     with path.open(encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def load_mejoras_candidatos(cfg: Optional[dict] = None) -> pd.DataFrame:
+    """Pares (centro poblado, establecimiento candidato a ascenso) en los que
+    ascender ese establecimiento mejoraría el tiempo actual. Insumo del
+    simulador de escenarios; ver `run_fase4.construir_mejoras_candidatos`
+    para el origen de los tiempos."""
+    cfg = cfg or load_config()
+    path = _exigir(artefacto(MEJORAS_CANDIDATOS), "python run_fase4.py")
+    df = pd.read_parquet(path)
+    logger.info("mejoras_candidatos: %d pares sobre %d establecimientos candidatos (fuente: %s).",
+                len(df), df["id_candidato"].nunique(),
+                "/".join(sorted(df["fuente"].unique())) if len(df) else "-")
+    return df
 
 
 def load_output_csv(nombre: str, cfg: Optional[dict] = None) -> pd.DataFrame:
@@ -289,16 +307,25 @@ def orden_bandas_medias(cfg: Optional[dict] = None) -> list:
 def filter_puntos(
     puntos: pd.DataFrame,
     departamentos: Optional[Iterable] = None,
+    provincias: Optional[Iterable] = None,
     zonas: Optional[Iterable] = None,
     solo_muestra_enrutada: bool = False,
 ) -> pd.DataFrame:
-    """Filtra la tabla de demanda por departamento y/o zona.
+    """Filtra la tabla de demanda por departamento, provincia y/o zona.
 
     None = 'sin filtro' (no es lo mismo que una lista vacía, que sí filtra a
-    cero filas y así el usuario ve explícitamente que deseleccionó todo)."""
+    cero filas y así el usuario ve explícitamente que deseleccionó todo).
+
+    El filtro de provincia usa el nombre (columna PROV) porque es lo que el
+    usuario elige en pantalla; los nombres de provincia se repiten entre
+    departamentos, así que el filtro de departamento debe aplicarse antes ---
+    como se hace aquí --- para que 'HUANCABAMBA' no arrastre provincias
+    homónimas de otra región."""
     out = puntos
     if departamentos is not None:
         out = out[out["DEP"].isin(list(departamentos))]
+    if provincias is not None:
+        out = out[out["PROV"].isin(list(provincias))]
     if zonas is not None:
         out = out[out["zona"].isin(list(zonas))]
     if solo_muestra_enrutada:
@@ -309,12 +336,24 @@ def filter_puntos(
 def filter_instalaciones(
     instalaciones: pd.DataFrame,
     departamentos: Optional[Iterable] = None,
+    provincias: Optional[Iterable] = None,
+    categorias: Optional[Iterable] = None,
+    instituciones: Optional[Iterable] = None,
     solo_resolutivas: bool = False,
 ) -> pd.DataFrame:
-    """Mismo criterio de filtrado para la capa de oferta del mapa."""
+    """Mismo criterio de filtrado para la capa de oferta del mapa, más los
+    dos ejes que solo tienen sentido en la oferta: categoría (I-1 ... III-E,
+    incluida SIN_CATEGORIA) e institución (MINSA, EsSalud, privados,
+    Gobierno Regional, sanidades...)."""
     out = instalaciones
     if departamentos is not None:
         out = out[out["DEPARTAMENTO"].isin(list(departamentos))]
+    if provincias is not None:
+        out = out[out["PROVINCIA"].isin(list(provincias))]
+    if categorias is not None:
+        out = out[out["categoria_norm"].isin(list(categorias))]
+    if instituciones is not None:
+        out = out[out["INSTITUCION"].isin(list(instituciones))]
     if solo_resolutivas:
         out = out[out["es_resolutivo"].fillna(False).astype(bool)]
     return out.reset_index(drop=True)

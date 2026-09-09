@@ -19,6 +19,11 @@ Piezas:
     - gini_access            Gini ponderado por población + curva de Lorenz
     - urban_rural_contrast   contraste de acceso urbano vs. rural
     - access_vs_altitude     cruce t_min vs. altitud (Z), con nota de causalidad
+    - weighted_median_access mediana ponderada por población (Fase 4)
+    - population_within      población bajo/sobre un umbral de minutos (Fase 4)
+    - apply_upgrades         escenario ``¿y si se asciende este I-3 a II-1?''
+                              (Fase 4; usa la matriz completa de Fase 2)
+    - ranking_upgrade_gain   ganancia individual de cada candidato a ascenso
 
 Esquema esperado de `population_df` en todas las funciones que lo reciben:
 al menos las columnas de demanda_con_poblacion.parquet (salida de
@@ -38,7 +43,7 @@ matiz.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -571,3 +576,181 @@ def access_vs_altitude(access_df: pd.DataFrame, demanda_clean: pd.DataFrame) -> 
         len(valid), "Relación observacional -- ver nota de causalidad en el resumen exportado.",
     )
     return por_punto, resumen
+
+
+# ---------------------------------------------------------------------------
+# Indicadores puntuales para el encabezado del panel (Fase 4)
+# ---------------------------------------------------------------------------
+
+def weighted_median_access(access_df: pd.DataFrame, population_df: pd.DataFrame) -> float:
+    """Mediana del tiempo de acceso PONDERADA por población.
+
+    Se reporta junto a la media (weighted_mean_access) porque en esta
+    distribución las dos cuentan historias distintas y ambas son ciertas: la
+    media global sale por encima de las dos horas arrastrada por la cola
+    amazónica, mientras que la mediana --- el tiempo de la persona que está
+    justo en el medio --- es de decenas de minutos. Un titular que use solo
+    una de las dos miente por omisión.
+
+    Solo entran puntos con t_min conocido y peso positivo; devuelve NaN si no
+    queda ninguno (p.ej. un filtro del panel sin población censada)."""
+    merged = _join_by_id(access_df, population_df)
+    merged = merged.assign(peso=_effective_weight(merged))
+    valid = merged.dropna(subset=["t_min"])
+    valid = valid[valid["peso"] > 0].sort_values("t_min")
+
+    if valid.empty:
+        return float("nan")
+
+    peso_acumulado = valid["peso"].cumsum()
+    mitad = valid["peso"].sum() / 2.0
+    # searchsorted sobre el acumulado: el primer punto que deja al menos la
+    # mitad de la población por debajo. No se interpola entre puntos vecinos
+    # porque el dato subyacente es discreto (un centro poblado, un tiempo).
+    idx = int(np.searchsorted(peso_acumulado.to_numpy(), mitad, side="left"))
+    idx = min(idx, len(valid) - 1)
+    return float(valid["t_min"].iloc[idx])
+
+
+def population_within(
+    access_df: pd.DataFrame, population_df: pd.DataFrame, umbral_min: float
+) -> dict:
+    """Población por debajo y por encima de un umbral de minutos.
+
+    Devuelve un dict con la población ponderada bajo el umbral, sobre el
+    umbral, sin ruta enrutable y el total considerado, además de los
+    porcentajes. Es la función que alimenta el encabezado de indicadores del
+    panel y el cálculo de ganancia marginal del simulador de escenarios: los
+    dos números tienen que salir de la misma definición o la ganancia no
+    cuadraría con la cobertura mostrada.
+
+    La población sin ruta NO se cuenta como ``por encima del umbral'': es
+    desconocida, no lenta. Se reporta aparte, igual que en coverage_bands."""
+    merged = _join_by_id(access_df, population_df)
+    merged = merged.assign(peso=_effective_weight(merged))
+
+    sin_ruta = float(merged.loc[merged["t_min"].isna(), "peso"].sum())
+    con_ruta = merged.dropna(subset=["t_min"])
+    bajo = float(con_ruta.loc[con_ruta["t_min"] <= umbral_min, "peso"].sum())
+    sobre = float(con_ruta.loc[con_ruta["t_min"] > umbral_min, "peso"].sum())
+    total = bajo + sobre + sin_ruta
+
+    return {
+        "umbral_min": float(umbral_min),
+        "poblacion_total": total,
+        "poblacion_bajo_umbral": bajo,
+        "poblacion_sobre_umbral": sobre,
+        "poblacion_sin_ruta": sin_ruta,
+        "pct_bajo_umbral": round(100 * bajo / total, 2) if total else 0.0,
+        "pct_sobre_umbral": round(100 * sobre / total, 2) if total else 0.0,
+        "pct_sin_ruta": round(100 * sin_ruta / total, 2) if total else 0.0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Simulador de escenarios (Fase 4)
+# ---------------------------------------------------------------------------
+
+def apply_upgrades(
+    access_df: pd.DataFrame, improvements_df: pd.DataFrame, upgraded_ids: Iterable
+) -> pd.DataFrame:
+    """Recalcula t_min suponiendo que los establecimientos de `upgraded_ids`
+    pasan a tener capacidad resolutiva.
+
+    `improvements_df` es la matriz de pares (id_demanda, id_candidato,
+    t_candidato_min) de Fase 4: para cada centro poblado, el tiempo hacia
+    cada candidato a ascenso. El escenario nuevo es, por definición del
+    indicador, el mínimo entre el tiempo actual y el tiempo al mejor
+    candidato ascendido:
+
+        t_nuevo(i) = min( t_actual(i), min_{j in ascendidos} t(i, j) )
+
+    Un punto que hoy no tiene ninguna ruta (t_min NaN) SÍ puede pasar a
+    tenerla si un candidato alcanzable es ascendido; por eso el mínimo se
+    calcula tratando el NaN como infinito y no se descarta esa fila.
+
+    Devuelve una copia de access_df con `t_min` actualizado,
+    `flag_sin_acceso_enrutable` recalculado y dos columnas nuevas:
+    `t_min_original` y `mejorado` (bool), para que el panel pueda mostrar
+    quién ganó qué en vez de solo el agregado."""
+    upgraded_ids = set(upgraded_ids)
+    out = access_df.copy()
+    out["t_min_original"] = out["t_min"]
+
+    if not upgraded_ids or improvements_df.empty:
+        out["mejorado"] = False
+        return out
+
+    relevantes = improvements_df[improvements_df["id_candidato"].isin(upgraded_ids)]
+    if relevantes.empty:
+        out["mejorado"] = False
+        logger.info("apply_upgrades: %d candidatos seleccionados, ninguno mejora a ningún punto "
+                    "del subconjunto actual.", len(upgraded_ids))
+        return out
+
+    mejor = relevantes.groupby("id_demanda")["t_candidato_min"].min()
+    t_candidato = out["id_demanda"].map(mejor)
+
+    # np.fmin ignora el NaN del lado que lo tenga (a diferencia de np.minimum,
+    # que propaga NaN): exactamente el comportamiento que se necesita para que
+    # un punto hoy sin ruta pueda pasar a tenerla.
+    out["t_min"] = np.fmin(out["t_min"].to_numpy(dtype=float),
+                            t_candidato.to_numpy(dtype=float))
+    out["mejorado"] = out["t_min"] < out["t_min_original"].fillna(np.inf)
+    out["flag_sin_acceso_enrutable"] = out["t_min"].isna()
+
+    logger.info(
+        "apply_upgrades: %d establecimientos ascendidos mejoran el tiempo de %d de %d puntos "
+        "de demanda del subconjunto.",
+        len(upgraded_ids), int(out["mejorado"].sum()), len(out),
+    )
+    return out
+
+
+def ranking_upgrade_gain(
+    access_df: pd.DataFrame, population_df: pd.DataFrame, improvements_df: pd.DataFrame,
+    umbral_min: float, top_n: int = 20,
+) -> pd.DataFrame:
+    """Ganancia INDIVIDUAL de ascender cada establecimiento candidato: cuánta
+    población pasaría a estar dentro del umbral si se ascendiera ese
+    establecimiento y ningún otro.
+
+    Sirve para que el usuario del simulador no tenga que adivinar cuáles de
+    los 607 candidatos vale la pena mirar. Es explícitamente una ganancia
+    individual, NO el reparto de un total: las ganancias de dos candidatos
+    vecinos se solapan (la misma población entra dentro del umbral con
+    cualquiera de los dos), así que sumarlas sobreestima el efecto conjunto.
+    La ganancia real de una combinación se obtiene con apply_upgrades sobre
+    esa combinación --- que es justamente lo que hace el simulador cuando el
+    usuario selecciona más de uno.
+
+    Devuelve una fila por candidato con ganancia positiva, ordenada de mayor
+    a menor: [id_candidato, poblacion_ganada, n_puntos_ganados]."""
+    merged = _join_by_id(access_df, population_df)
+    merged = merged.assign(peso=_effective_weight(merged))
+    estado = merged[["id_demanda", "t_min", "peso"]]
+
+    pares = improvements_df.merge(estado, on="id_demanda", how="inner")
+    # Fuera del umbral hoy (o sin ruta), dentro del umbral con el ascenso.
+    fuera_hoy = pares["t_min"].isna() | (pares["t_min"] > umbral_min)
+    dentro_manana = pares["t_candidato_min"] <= umbral_min
+    ganan = pares[fuera_hoy & dentro_manana & (pares["peso"] > 0)]
+
+    if ganan.empty:
+        return pd.DataFrame(columns=["id_candidato", "poblacion_ganada", "n_puntos_ganados"])
+
+    ranking = (
+        ganan.groupby("id_candidato")
+        .agg(poblacion_ganada=("peso", "sum"), n_puntos_ganados=("id_demanda", "nunique"))
+        .reset_index()
+        .sort_values("poblacion_ganada", ascending=False)
+        .head(top_n)
+        .reset_index(drop=True)
+    )
+    logger.info(
+        "ranking_upgrade_gain(umbral=%.0f min): %d candidatos con ganancia positiva; "
+        "el mejor individual acercaría a %.0f habitantes.",
+        umbral_min, ganan["id_candidato"].nunique(),
+        ranking["poblacion_ganada"].iloc[0] if len(ranking) else 0.0,
+    )
+    return ranking

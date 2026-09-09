@@ -1,5 +1,5 @@
 {
-  "generado": "2026-09-09T15:25:58+00:00",
+  "generado": "2026-09-09T15:56:26+00:00",
   "departamentos": [
     "PIURA",
     "AYACUCHO",
@@ -13,9 +13,17 @@
   "instalaciones_resolutivas": 58,
   "instalaciones_sin_categoria": 390,
   "distritos_en_geojson": 225,
+  "simulador_candidatos": 606,
+  "simulador_pares_que_mejoran": 245398,
+  "simulador_fuente_tiempos": [
+    "estimado"
+  ],
+  "factor_desvio_mediano_empirico": 1.59,
   "artefactos": {
     "puntos": "data/processed/puntos_dashboard.parquet",
     "instalaciones": "data/processed/instalaciones_dashboard.parquet",
-    "distritos": "data/processed/distritos_3dep.geojson"
+    "distritos": "data/processed/distritos_3dep.geojson",
+    "mejoras_candidatos": "data/processed/mejoras_candidatos.parquet",
+    "calibracion_linea_recta": "data/outputs/calibracion_linea_recta.csv"
   }
 }

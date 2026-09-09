@@ -6,7 +6,7 @@ Genera, a partir de los CSV de `data/outputs/` y de los artefactos de Fase 4
 (única fuente de verdad: no recalcula nada por su cuenta salvo agregados
 descriptivos de presentación):
 
-    report/figures/*.png        las 7 figuras que cita `report/informe.tex`
+    report/figures/*.pdf (+.png) las 8 figuras que cita `report/informe.tex`
     report/tables/informe_*.tex tablas booktabs listas para \\input
 
 Por qué tablas nuevas y no las de Fase 3: `src/export.py` vuelca los
@@ -162,12 +162,18 @@ def _un_decimal(valor) -> str:
 # ---------------------------------------------------------------------------
 
 def _guardar(fig, nombre: str) -> Path:
+    """Guarda cada figura dos veces: PDF vectorial para el informe (la
+    consigna pide vectorial o PNG de alta resolución, y el vectorial no se
+    pixela al hacer zoom sobre un mapa) y PNG a 200 dpi para el README, el
+    panel y el video, que no saben mostrar un PDF."""
     FIGURAS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = FIGURAS_DIR / f"{nombre}.png"
-    fig.savefig(dest, bbox_inches="tight", facecolor="white")
+    dest_pdf = FIGURAS_DIR / f"{nombre}.pdf"
+    dest_png = FIGURAS_DIR / f"{nombre}.png"
+    fig.savefig(dest_pdf, bbox_inches="tight", facecolor="white")
+    fig.savefig(dest_png, bbox_inches="tight", facecolor="white")
     plt.close(fig)
-    logger.info("Figura: %s", _ruta_corta(dest))
-    return dest
+    logger.info("Figura: %s (+ .png)", _ruta_corta(dest_pdf))
+    return dest_pdf
 
 
 def _anillos(geom: dict) -> list:
@@ -431,6 +437,77 @@ def figura_altitud(cfg: dict, puntos: pd.DataFrame) -> Path:
     return _guardar(fig, "fig_altitud")
 
 
+def figura_recta_vs_red(cfg: dict) -> Path:
+    """Distancia de red frente a distancia en línea recta (Discusión).
+
+    Es la figura que justifica por qué no se puede medir accesibilidad con
+    una regla sobre el mapa: la nube se separa de la diagonal de forma
+    distinta en cada departamento, y en Loreto se separa además hacia arriba
+    en tiempo, no solo en distancia."""
+    pares = load_output_csv("calibracion_pares_muestra", cfg)
+    calib = load_output_csv("calibracion_linea_recta", cfg).set_index("departamento")
+    factor_config = cfg["enrutamiento"]["fallback_no_enrutable"]["factor_desvio_default"]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.0, 4.4),
+                                   gridspec_kw={"width_ratios": [1.25, 1]})
+
+    for dep, color in COLOR_DEP.items():
+        sub = pares[pares["DEP"] == dep]
+        ax1.scatter(sub["dist_recta_km"], sub["distancia_km"], s=5, alpha=0.18,
+                    color=color, linewidths=0, label=dep)
+    # Ejes logarítmicos: la matriz OD es demanda x TODAS las resolutivas, así
+    # que los pares van de menos de 1 km a más de 1,000. En escala lineal, el
+    # 90 % de la nube se aplasta contra el origen.
+    piso, tope = 0.5, float(pares["dist_recta_km"].max()) * 1.1
+    recta = np.array([piso, tope])
+    ax1.plot(recta, recta, color="#333", lw=1.2, ls="--", label="línea recta (factor 1.0)")
+    ax1.plot(recta, recta * float(calib.loc["TODOS", "factor_desvio_mediano"]),
+             color="#d73027", lw=1.6,
+             label=f"factor mediano observado ({calib.loc['TODOS', 'factor_desvio_mediano']:.2f})")
+    ax1.set_xscale("log")
+    ax1.set_yscale("log")
+    ax1.set_xlim(piso, tope)
+    ax1.set_ylim(piso, tope * 2)
+    ax1.set_xlabel("Distancia en línea recta (km, escala log)")
+    ax1.set_ylabel("Distancia por la red vial (km, escala log)")
+    ax1.set_title("Cada par origen-destino enrutado", loc="left")
+    leyenda = ax1.legend(fontsize=8.5, loc="lower right")
+    for handle in leyenda.legend_handles:
+        if hasattr(handle, "set_alpha"):
+            handle.set_alpha(1)
+
+    deps = [d for d in COLOR_DEP if d in calib.index]
+    x = np.arange(len(deps))
+    ax2.bar(x - 0.2, [calib.loc[d, "factor_desvio_mediano"] for d in deps], width=0.38,
+            color=[COLOR_DEP[d] for d in deps], label="Factor de desvío (red / recta)")
+    ax2.axhline(factor_config, color="#d73027", ls="--", lw=1.3)
+    ax2.text(-0.45, 2.3, f"- - -  config.md usaba {factor_config} por defecto",
+             ha="left", va="top", fontsize=8.5, color="#d73027")
+    for i, d in enumerate(deps):
+        ax2.text(i - 0.2, calib.loc[d, "factor_desvio_mediano"] + 0.03,
+                 f"{calib.loc[d, 'factor_desvio_mediano']:.2f}", ha="center", fontsize=9)
+
+    ax3 = ax2.twinx()
+    ax3.bar(x + 0.2, [calib.loc[d, "velocidad_mediana_kmh"] for d in deps], width=0.38,
+            color="#bdbdbd", edgecolor="#666")
+    for i, d in enumerate(deps):
+        ax3.text(i + 0.2, calib.loc[d, "velocidad_mediana_kmh"] + 1.5,
+                 f"{calib.loc[d, 'velocidad_mediana_kmh']:.0f} km/h", ha="center", fontsize=8.5)
+    ax3.set_ylabel("Velocidad mediana de la red (km/h)")
+    ax3.set_ylim(0, 85)
+    ax3.grid(False)
+
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([d.title() for d in deps])
+    ax2.set_ylabel("Factor de desvío (veces la línea recta)")
+    ax2.set_ylim(0, 2.4)
+    ax2.set_title("Desvío y velocidad, por departamento", loc="left")
+    ax2.grid(axis="x", visible=False)
+
+    fig.tight_layout()
+    return _guardar(fig, "fig_recta_vs_red")
+
+
 # ---------------------------------------------------------------------------
 # Tablas del informe
 # ---------------------------------------------------------------------------
@@ -503,6 +580,19 @@ def tablas(cfg: dict) -> None:
         nombre="informe_snapping",
     )
 
+    calib = load_output_csv("calibracion_linea_recta", cfg)
+    tabla_latex(
+        calib, ["departamento", "n_pares", "factor_desvio_p25", "factor_desvio_mediano",
+                "factor_desvio_p75", "velocidad_mediana_kmh"],
+        ["Departamento", "Pares enrutados", "Desvío P25", "Desvío mediano", "Desvío P75",
+         "Velocidad mediana (km/h)"], "lrrrrr",
+        {"n_pares": _miles, "factor_desvio_p25": lambda v: f"{v:.2f}",
+         "factor_desvio_mediano": lambda v: f"{v:.2f}",
+         "factor_desvio_p75": lambda v: f"{v:.2f}",
+         "velocidad_mediana_kmh": _un_decimal},
+        nombre="informe_calibracion",
+    )
+
     modos = load_output_csv("comparacion_modos", cfg)
     resumen_modos = pd.DataFrame([
         {"modo": etiqueta,
@@ -541,9 +631,10 @@ def main() -> None:
     figura_ranking(cfg)
     figura_modos(cfg)
     figura_altitud(cfg, puntos)
+    figura_recta_vs_red(cfg)
     tablas(cfg)
 
-    figuras = sorted(p.name for p in FIGURAS_DIR.glob("*.png"))
+    figuras = sorted(p.stem for p in FIGURAS_DIR.glob("*.pdf"))
     tablas_generadas = sorted(p.name for p in TABLAS_DIR.glob("informe_*.tex"))
     print("\n--- Fase 5 ---")
     print(f"Figuras ({len(figuras)}): {', '.join(figuras)}")

@@ -141,14 +141,42 @@ def test_filter_puntos_solo_muestra_enrutada(puntos):
     assert len(filter_puntos(puntos, solo_muestra_enrutada=True)) == 3
 
 
-def test_filter_instalaciones_solo_resolutivas():
-    inst = pd.DataFrame({
-        "COD_IPRESS": ["1", "2", "3"],
-        "DEPARTAMENTO": ["PIURA", "PIURA", "LORETO"],
-        "es_resolutivo": [True, False, True],
+def test_filter_puntos_por_provincia(puntos):
+    assert set(filter_puntos(puntos, provincias=["P2"])["id"]) == {"d3", "d4"}
+    # El filtro de departamento se aplica primero, así que una provincia
+    # homónima de otro departamento no se cuela.
+    assert len(filter_puntos(puntos, departamentos=["PIURA"], provincias=["P2"])) == 0
+
+
+@pytest.fixture
+def instalaciones():
+    return pd.DataFrame({
+        "COD_IPRESS": ["1", "2", "3", "4"],
+        "DEPARTAMENTO": ["PIURA", "PIURA", "LORETO", "LORETO"],
+        "PROVINCIA": ["PIURA", "SULLANA", "MAYNAS", "MAYNAS"],
+        "categoria_norm": ["II-1", "I-3", "I-4", "SIN_CATEGORIA"],
+        "INSTITUCION": ["GOBIERNO REGIONAL", "PRIVADO", "ESSALUD", "PRIVADO"],
+        "es_resolutivo": [True, False, False, False],
     })
-    assert len(filter_instalaciones(inst, solo_resolutivas=True)) == 2
-    assert len(filter_instalaciones(inst, departamentos=["PIURA"], solo_resolutivas=True)) == 1
+
+
+def test_filter_instalaciones_solo_resolutivas(instalaciones):
+    assert len(filter_instalaciones(instalaciones, solo_resolutivas=True)) == 1
+    assert len(filter_instalaciones(instalaciones, departamentos=["LORETO"],
+                                     solo_resolutivas=True)) == 0
+
+
+def test_filter_instalaciones_por_categoria_e_institucion(instalaciones):
+    assert set(filter_instalaciones(instalaciones, categorias=["I-3", "I-4"])["COD_IPRESS"]) == {"2", "3"}
+    assert set(filter_instalaciones(instalaciones, instituciones=["PRIVADO"])["COD_IPRESS"]) == {"2", "4"}
+    assert len(filter_instalaciones(instalaciones, categorias=["I-3"], instituciones=["ESSALUD"])) == 0
+
+
+def test_filter_instalaciones_sin_categoria_es_una_categoria_mas(instalaciones):
+    """SIN_CATEGORIA no es un nulo que se filtre solo: es un valor que el
+    usuario puede seleccionar, porque esos 390 establecimientos existen y su
+    ausencia de categoría es un dato."""
+    assert len(filter_instalaciones(instalaciones, categorias=["SIN_CATEGORIA"])) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +233,31 @@ def test_app_levanta_sin_excepciones():
     cambia un filtro para forzar el recálculo."""
     AppTest = pytest.importorskip("streamlit.testing.v1").AppTest
 
-    at = AppTest.from_file(str(artefacto("app/dashboard.py")), default_timeout=300).run()
+    at = AppTest.from_file(str(artefacto("app.py")), default_timeout=600).run()
     assert not at.exception, [e.message for e in at.exception]
     assert len(at.metric) > 0
 
     at.sidebar.multiselect[0].set_value(["LORETO"]).run()
     assert not at.exception, [e.message for e in at.exception]
+
+
+@pytest.mark.artefactos
+@requiere_artefactos
+def test_mejoras_candidatos_solo_contiene_pares_que_mejoran():
+    """Invariante del artefacto del simulador: si guardara pares que NO
+    mejoran, apply_upgrades seguiría dando el resultado correcto (toma un
+    mínimo), pero el archivo pesaría cuatro veces más y el ranking de
+    ganancia individual recorrería basura."""
+    from src.dashboard_data import load_mejoras_candidatos, load_puntos
+
+    cfg = load_config()
+    mejoras = load_mejoras_candidatos(cfg)
+    actual = load_puntos(cfg).set_index("id")["t_min"]
+
+    t_actual = mejoras["id_demanda"].map(actual)
+    sin_ruta_hoy = t_actual.isna()
+    mejora_de_verdad = mejoras["t_candidato_min"] < t_actual
+
+    assert (sin_ruta_hoy | mejora_de_verdad).all()
+    assert mejoras["t_candidato_min"].gt(0).all()
+    assert set(mejoras["fuente"]).issubset({"estimado", "osrm"})

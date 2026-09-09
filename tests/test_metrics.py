@@ -21,7 +21,8 @@ from src.config_loader import load_config
 from src.metrics import (
     classify_urban_rural, attach_sample_weights, access_time, coverage_bands,
     weighted_mean_access, critical_gap_ranking, gini_access, urban_rural_contrast,
-    access_vs_altitude,
+    access_vs_altitude, weighted_median_access, population_within, apply_upgrades,
+    ranking_upgrade_gain,
 )
 
 
@@ -290,3 +291,114 @@ def test_attach_sample_weights_bajo_el_limite_no_muestrea(cfg):
     out = attach_sample_weights(demanda, cfg)
     assert len(out) == 3
     assert (out["peso_muestral"] == 1.0).all()
+
+
+# ---------------------------------------------------------------------------
+# Indicadores del encabezado del panel (Fase 4)
+# ---------------------------------------------------------------------------
+
+def test_weighted_median_access_pondera_por_poblacion(matrix_df, facility_resolutive_ids, population_df):
+    """d1 pesa 100 con t=10 y d2 pesa 300 con t=50 (d3 no tiene ruta y queda
+    fuera). La mitad del peso son 200, que se alcanza recién dentro de d2:
+    la mediana ponderada es 50, no 30 (el promedio simple de los dos)."""
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    assert weighted_median_access(access_df, population_df) == 50.0
+
+
+def test_weighted_median_access_sin_poblacion_es_nan(matrix_df, facility_resolutive_ids, population_df):
+    sin_poblacion = population_df.assign(poblacion_censada=np.nan)
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    assert np.isnan(weighted_median_access(access_df, sin_poblacion))
+
+
+def test_population_within_separa_sin_ruta_de_lento(matrix_df, facility_resolutive_ids, population_df):
+    """d3 (50 hab) no tiene ruta: no puede contar como 'por encima del
+    umbral', porque su tiempo es desconocido, no alto."""
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    r = population_within(access_df, population_df, umbral_min=30)
+
+    assert r["poblacion_bajo_umbral"] == 100.0    # d1, 10 min
+    assert r["poblacion_sobre_umbral"] == 300.0   # d2, 50 min
+    assert r["poblacion_sin_ruta"] == 50.0        # d3
+    assert r["poblacion_total"] == 450.0
+    assert r["pct_bajo_umbral"] == pytest.approx(22.22, abs=0.01)
+
+
+def test_population_within_umbral_es_inclusivo(matrix_df, facility_resolutive_ids, population_df):
+    """Un punto exactamente en el umbral cuenta como cubierto: '30 minutos o
+    menos' es la lectura natural de la banda 0-30 de coverage_bands, y las
+    dos definiciones tienen que coincidir."""
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    r = population_within(access_df, population_df, umbral_min=10)
+    assert r["poblacion_bajo_umbral"] == 100.0
+
+
+# ---------------------------------------------------------------------------
+# Simulador de escenarios (Fase 4)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def improvements_df():
+    """f9 es un I-3 candidato a ascenso: deja a d2 a 20 min (hoy está a 50) y
+    a d3 a 5 min (hoy no tiene ninguna ruta)."""
+    return pd.DataFrame({
+        "id_demanda": ["d2", "d3"],
+        "id_candidato": ["f9", "f9"],
+        "t_candidato_min": [20.0, 5.0],
+        "fuente": ["estimado", "estimado"],
+    })
+
+
+def test_apply_upgrades_toma_el_minimo_y_marca_lo_mejorado(
+    matrix_df, facility_resolutive_ids, improvements_df
+):
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    out = apply_upgrades(access_df, improvements_df, ["f9"]).set_index("id_demanda")
+
+    assert out.loc["d1", "t_min"] == 10.0        # sin candidato cerca: no cambia
+    assert not out.loc["d1", "mejorado"]
+    assert out.loc["d2", "t_min"] == 20.0        # mejora de 50 a 20
+    assert out.loc["d2", "mejorado"]
+    assert out.loc["d3", "t_min"] == 5.0         # pasa de no tener ruta a tenerla
+    assert out.loc["d3", "mejorado"]
+    assert not out.loc["d3", "flag_sin_acceso_enrutable"]
+    assert np.isnan(out.loc["d3", "t_min_original"])
+
+
+def test_apply_upgrades_sin_seleccion_no_cambia_nada(matrix_df, facility_resolutive_ids, improvements_df):
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    out = apply_upgrades(access_df, improvements_df, [])
+    pd.testing.assert_series_equal(out["t_min"], access_df["t_min"], check_names=False)
+    assert not out["mejorado"].any()
+
+
+def test_apply_upgrades_ignora_candidatos_no_seleccionados(
+    matrix_df, facility_resolutive_ids, improvements_df
+):
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    out = apply_upgrades(access_df, improvements_df, ["OTRO_QUE_NO_ESTA"])
+    assert not out["mejorado"].any()
+
+
+def test_ranking_upgrade_gain_cuenta_solo_a_quien_cruza_el_umbral(
+    matrix_df, facility_resolutive_ids, population_df, improvements_df
+):
+    """Con umbral de 30 min, ascender f9 mete dentro del umbral a d2 (300
+    hab, hoy a 50 min) y a d3 (50 hab, hoy sin ruta). d1 ya estaba dentro y
+    no suma."""
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    ranking = ranking_upgrade_gain(access_df, population_df, improvements_df, umbral_min=30)
+
+    assert list(ranking["id_candidato"]) == ["f9"]
+    assert ranking["poblacion_ganada"].iloc[0] == 350.0
+    assert ranking["n_puntos_ganados"].iloc[0] == 2
+
+
+def test_ranking_upgrade_gain_vacio_si_nadie_cruza(
+    matrix_df, facility_resolutive_ids, population_df, improvements_df
+):
+    """Con un umbral de 2 minutos, ningún candidato acerca a nadie por debajo
+    de esa marca: el ranking sale vacío en vez de con ganancias de cero."""
+    access_df = access_time(matrix_df, facility_resolutive_ids)
+    ranking = ranking_upgrade_gain(access_df, population_df, improvements_df, umbral_min=2)
+    assert ranking.empty

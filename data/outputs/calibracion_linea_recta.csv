@@ -1,0 +1,5 @@
+departamento,n_pares,factor_desvio_p25,factor_desvio_mediano,factor_desvio_p75,velocidad_mediana_kmh,min_por_km_recta_mediano
+AYACUCHO,166280,1.298,1.414,1.916,63.0,1.317
+LORETO,53567,1.668,1.867,2.074,12.7,9.767
+PIURA,64428,1.343,1.52,1.894,63.4,1.449
+TODOS,284432,1.317,1.59,1.933,62.0,1.577

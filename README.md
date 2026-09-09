@@ -4,9 +4,19 @@ Proyecto integrador: acceso real por carretera a centros de salud con
 capacidad resolutiva (categoría II-1 en adelante) en tres departamentos:
 **Piura** (costa), **Ayacucho** (andino), **Loreto** (amazónico).
 
-Este README cubre **Fase 1 (adquisición y validación)** y **Fase 2
-(enrutamiento)**. Ver `config.md` para cambiar departamentos, umbrales o
-motor de enrutamiento sin tocar código.
+Este README cubre las cinco fases. Ver `config.md` para cambiar
+departamentos, umbrales o motor de enrutamiento sin tocar código.
+
+**Ruta corta** (el repo ya trae las matrices y los outputs versionados, así
+que las fases 4 y 5 corren sin OSRM ni Docker):
+
+```bash
+pip install -r requirements.txt
+python run_fase4.py                 # prepara los artefactos del panel
+streamlit run app/dashboard.py      # panel interactivo (Fase 4)
+python run_fase5.py                 # figuras y tablas del informe (Fase 5)
+cd report && pdflatex informe.tex && pdflatex informe.tex
+```
 
 ## 0. Setup
 
@@ -130,6 +140,68 @@ Corre también el smoke test contra OSRM real (requiere el paso 3.1):
 pytest tests/test_routing.py -v -m osrm
 ```
 
+## 5. Panel interactivo (Fase 4)
+
+```bash
+python run_fase4.py                 # una vez: prepara los artefactos
+streamlit run app/dashboard.py
+```
+
+`run_fase4.py` no calcula ninguna métrica nueva: reutiliza
+`metrics.attach_sample_weights`, `metrics.classify_urban_rural` y
+`metrics.access_time` para dejar tres artefactos que el panel abre en
+segundos, **sin OSRM, sin Docker y sin geopandas**:
+
+| Artefacto | Contenido |
+|---|---|
+| `data/processed/puntos_dashboard.parquet` | 1 fila por centro poblado (19,460), con población, zona, peso muestral, `t_min` y banda |
+| `data/processed/instalaciones_dashboard.parquet` | 1 fila por IPRESS con coordenada válida (2,844), con `es_resolutivo` |
+| `data/processed/distritos_3dep.geojson` | los 225 polígonos distritales de los 3 departamentos (178 KB en vez de 1.9 MB) |
+| `data/outputs/resumen_fase4.json` | trazabilidad de la corrida, que el panel muestra en la pestaña de metodología |
+
+El panel tiene ocho pestañas (resumen, mapa, brechas, equidad, modos,
+altitud, calidad de datos, metodología y descargas) y filtros por
+departamento y zona.
+
+**La decisión de diseño que importa:** el panel **no reimplementa ninguna
+métrica**. Al mover un filtro vuelve a llamar a las funciones de
+`src/metrics.py` sobre el subconjunto filtrado (`src/dashboard_data.py` se
+encarga de devolverles los DataFrames en la forma que esperan). Con todo
+seleccionado, los números del panel son idénticos a los CSV de
+`data/outputs/` que cita el informe — y hay un test que lo comprueba:
+
+```bash
+pytest tests/test_dashboard.py -v                       # todo
+pytest tests/test_dashboard.py -v -m "not artefactos"    # sin correr run_fase4.py
+```
+
+## 6. Informe y figuras (Fase 5)
+
+```bash
+python run_fase5.py
+cd report && pdflatex informe.tex && pdflatex informe.tex
+```
+
+`run_fase5.py` lee los CSV de `data/outputs/` (misma fuente de verdad que el
+panel) y genera:
+
+- `report/figures/*.png` — 7 figuras: mapa coroplético por departamento,
+  cobertura por banda, curva de Lorenz, contraste urbano/rural, ranking de
+  distritos críticos, comparación de modos y dispersión altitud/tiempo.
+- `report/tables/informe_*.tex` — tablas `booktabs` con encabezados en
+  castellano y **contenido escapado**. Las tablas de Fase 3
+  (`report/tables/*.tex` sin prefijo) se conservan intactas como volcado
+  reproducible, pero no compilan dentro de un documento: sus encabezados son
+  nombres de variable con guiones bajos, que LaTeX interpreta.
+- `report/informe.tex` — el informe (15 páginas), que incluye una sección de
+  **Limitaciones** con las diez que pueden alterar las conclusiones,
+  ordenadas por impacto y con la dirección del sesgo cuando se conoce.
+- `report/guion_video.md` — guion de la presentación en video, minuto a
+  minuto, apoyado en el panel.
+
+El PDF compilado (`report/informe.pdf`) está versionado para que no haga
+falta una distribución LaTeX solo para leerlo.
+
 ## Estructura
 
 ```
@@ -138,17 +210,28 @@ src/
   config_loader.py      # lee config.md
   acquisition.py         # Fase 1 — descarga
   validation.py           # Fase 1 — normalización de categoría + 6 reglas de calidad
-  routing.py               # Fase 2 — cliente OSRM, snapping, matriz cacheada, comparaciones
+  population.py            # Fase 3 — población censada 2017 por centro poblado
+  routing.py                # Fase 2 — cliente OSRM, snapping, matriz cacheada, comparaciones
+  metrics.py                 # Fase 3 — métricas puras (sin I/O)
+  export.py                   # Fase 3 — escribe CSV + tablas LaTeX
+  dashboard_data.py            # Fase 4 — carga artefactos y los adapta al contrato de metrics.py
+app/
+  dashboard.py                  # Fase 4 — panel Streamlit (solo presentación)
+run_fase1.py … run_fase5.py       # un script por fase, ejecutables en orden
 docker/
-  build_osrm.sh            # compila los 3 grafos (car/bike/foot)
-  docker-compose.yml        # sirve los 3 perfiles en localhost
+  build_osrm.sh                   # compila los 3 grafos (car/bike/foot)
+  docker-compose.yml               # sirve los 3 perfiles en localhost
 data/
-  raw/                       # nunca se edita a mano; se regenera con acquisition.py
-  processed/                  # se versiona (incluye la matriz precomputada)
-  outputs/                     # informe de calidad, tablas para el reporte LaTeX
+  raw/                              # nunca se edita a mano; se regenera con acquisition.py
+  processed/                         # se versiona (incluye la matriz precomputada)
+  outputs/                            # reportes de calidad y tablas de métricas
+report/
+  informe.tex / informe.pdf            # Fase 5 — informe final
+  figures/ · tables/                    # generados por run_fase5.py
+  guion_video.md                         # guion de la presentación
 tests/
-  test_validation.py
-  test_routing.py
+  test_validation.py · test_routing.py · test_metrics.py
+  test_dashboard.py · test_informe.py
 ```
 
 ## Notas de diseño para el evaluador
@@ -162,3 +245,17 @@ tests/
 - **El factor de desvío del fallback no es un valor inventado**:
   `routing.validate_deviation_factor()` lo calibra empíricamente comparando
   distancia de red vs. línea recta en los pares que sí se lograron enrutar.
+- **El panel no puede contradecir al informe.** No hay una segunda
+  implementación de "media ponderada" o "banda de cobertura" en la capa de
+  presentación: `app/dashboard.py` llama a `src/metrics.py`, igual que
+  `run_fase3.py`. `tests/test_dashboard.py` verifica que recalcular desde los
+  artefactos del panel reproduce exactamente `coverage_bands.csv`.
+- **Cada cifra dice de qué universo habla.** Las métricas describen la muestra
+  enrutada de 5,002 centros poblados (de 19,460), ponderada por población
+  censada y por el peso de diseño del muestreo. El panel lo repite en cada
+  vista y el informe lo cuantifica en Limitaciones (incluida la sobreestimación
+  de ~17 % de la población total por expansión de pesos).
+- **Un gris no es un dato malo.** En los mapas, "sin ruta en la red vial"
+  (un punto sin acceso enrutable) y "sin población censada" (una unidad sin
+  peso para promediar) son categorías distintas y con colores distintos: ver
+  `dashboard_data.assign_bands_medias()`.

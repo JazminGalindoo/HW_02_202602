@@ -1,0 +1,21 @@
+{
+  "generado": "2026-09-09T15:25:58+00:00",
+  "departamentos": [
+    "PIURA",
+    "AYACUCHO",
+    "LORETO"
+  ],
+  "puntos_demanda_universo": 19460,
+  "puntos_demanda_muestra_enrutada": 5002,
+  "puntos_con_poblacion_censada": 12509,
+  "puntos_sin_acceso_enrutable": 98,
+  "instalaciones_total": 2844,
+  "instalaciones_resolutivas": 58,
+  "instalaciones_sin_categoria": 390,
+  "distritos_en_geojson": 225,
+  "artefactos": {
+    "puntos": "data/processed/puntos_dashboard.parquet",
+    "instalaciones": "data/processed/instalaciones_dashboard.parquet",
+    "distritos": "data/processed/distritos_3dep.geojson"
+  }
+}

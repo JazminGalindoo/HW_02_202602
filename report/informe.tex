@@ -1,0 +1,716 @@
+% ---------------------------------------------------------------------------
+% Golden Hour -- Informe final (Fase 5)
+%
+% Compilar:  pdflatex informe.tex && pdflatex informe.tex
+% (dos pasadas: la primera resuelve las referencias cruzadas y el índice)
+%
+% Requisitos: una distribución LaTeX estándar (TeX Live, MiKTeX u Overleaf).
+% Si el sistema no tuviera el paquete de castellano de babel, comentar la
+% línea de \usepackage[...]{babel}: el documento compila igual, solo pierde
+% la partición de palabras en español.
+%
+% Las tablas de report/tables/informe_*.tex y las figuras de report/figures/
+% NO se editan a mano: las regenera `python run_fase5.py` a partir de los CSV
+% de data/outputs/. Si un número de este informe no cuadra con el panel, la
+% causa es que falta correr esa fase, no una discrepancia de criterio.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla,es-nodecimaldot]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{figures/}}
+\setlength{\parskip}{0.4em}
+\setlength{\parindent}{0pt}
+
+\title{\textbf{Golden Hour}\\[0.3em]
+\large Acceso por carretera a establecimientos de salud con capacidad
+resolutiva en Piura, Ayacucho y Loreto}
+
+% TODO: reemplazar por los nombres completos de los tres integrantes.
+\author{Equipo del trabajo integrador}
+\date{Setiembre de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Se estima el tiempo de viaje en automóvil desde cada centro poblado hasta el
+establecimiento de salud con capacidad resolutiva (categoría II-1 o superior)
+más cercano, en tres departamentos elegidos por representar tres geografías
+distintas del Perú: Piura (costa), Ayacucho (sierra) y Loreto (selva). Sobre
+una muestra estratificada de 5{,}002 de los 19{,}460 centros poblados, con
+tiempos calculados con OSRM sobre la red vial de OpenStreetMap y ponderados
+por la población censada de 2017, el 71.8\,\% de la población estimada llega
+en menos de 30 minutos y el 10.6\,\% necesita más de dos horas. Ese promedio
+esconde tres países distintos: el tiempo medio ponderado es de 20.6 minutos
+en Piura, 67.2 en Ayacucho y 703.1 en Loreto. El índice de Gini del tiempo de
+acceso es 0.919 y la brecha rural/urbana es de 2.3 veces. Los quince
+distritos con peor acceso están todos en Loreto, donde el desplazamiento real
+es fluvial y no vial: ese es a la vez el hallazgo principal y la limitación
+principal del trabajo, y se discute como tal. Todo el pipeline es
+reproducible con cinco comandos y sus resultados se exploran en un panel
+interactivo que recalcula las métricas sobre cualquier filtro geográfico.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ===========================================================================
+\section{Introducción}
+% ===========================================================================
+
+En emergencias obstétricas, traumatismos y cuadros quirúrgicos agudos, lo que
+determina el desenlace no es la existencia de un establecimiento de salud
+cercano, sino la existencia de uno capaz de \emph{resolver} el cuadro. Una
+posta de categoría I-1 atendida por un técnico no reemplaza a un hospital con
+sala de operaciones. La pregunta que guía este trabajo es, entonces,
+deliberadamente estrecha:
+
+\begin{quote}
+\textbf{¿Cuánto tiempo le toma a la población de Piura, Ayacucho y Loreto
+llegar por carretera al establecimiento de salud con capacidad resolutiva más
+cercano, y qué tan desigualmente está repartido ese tiempo?}
+\end{quote}
+
+La elección de los tres departamentos no es casual: cubren las tres
+macrorregiones geográficas del país y permiten contrastar una costa con red
+vial densa, una sierra con relieve accidentado y una amazonía donde la red
+vial es marginal. La hipótesis de trabajo es que el promedio nacional oculta
+realidades incomparables entre sí, y que cualquier política formulada sobre
+ese promedio fallará justamente donde más falta hace.
+
+\textbf{Definición operativa de ``resolutivo''.} Se considera resolutivo todo
+establecimiento de categoría II-1, II-2, II-E, III-1, III-2 o III-E del
+Registro Nacional de IPRESS (RENIPRESS). Las categorías I-1 a I-4 (puestos y
+centros de salud del primer nivel) quedan fuera como destino: resuelven
+atención primaria, no emergencias. La lista completa vive en
+\texttt{config.md} y se puede cambiar sin tocar una línea de código.
+
+\textbf{Umbrales.} Los cortes de 30, 60 y 120 minutos también salen de
+\texttt{config.md}. Los 30 minutos corresponden a la noción clínica
+convencional de que el tiempo prehospitalario debe mantenerse dentro de la
+primera hora desde el evento (la ``hora dorada''), descontando el tiempo de
+respuesta y de estabilización; los 120 minutos marcan el umbral a partir del
+cual el traslado terrestre deja de ser una opción realista para una
+emergencia.
+
+% ===========================================================================
+\section{Datos y fuentes}
+% ===========================================================================
+
+\begin{table}[H]
+\centering
+\caption{Fuentes utilizadas y estado de su adquisición automática.}
+\label{tab:fuentes}
+\small
+\begin{tabular}{p{3.6cm}p{4.5cm}p{6.3cm}}
+\toprule
+Fuente & Contenido & Estado \\
+\midrule
+RENIPRESS (SUSALUD), portal de datos abiertos
+& Oferta: 3{,}718 establecimientos de los tres departamentos, con categoría,
+condición y coordenadas
+& \textbf{Descarga automática fallida.} La API tipo CKAN del portal responde
+con un código 418 a clientes no navegador. Se documentó el fallo y se
+descargó manualmente. \\
+\addlinespace
+SIGMED (MINEDU), capa de centros poblados
+& Demanda: 19{,}460 centros poblados con coordenada, altitud y nivel de
+capitalidad
+& \textbf{Sin API pública.} El portal exige navegación manual; el paso está
+documentado en el \texttt{README} y se ejecuta una sola vez. \\
+\addlinespace
+INEI, Directorio Nacional de Centros Poblados (Censos 2017, Lib1541)
+& Población censada por centro poblado, con código CCPP de 10 dígitos
+& Descarga automática, un archivo \texttt{.xlsx} por departamento. \\
+\addlinespace
+OpenStreetMap / Geofabrik
+& Red vial del Perú (\texttt{peru-latest.osm.pbf}, 244 MB)
+& Descarga automática directa. \\
+\addlinespace
+\texttt{juaneladio/\allowbreak peru-geojson}
+& Límites distritales (INEI 2007 georreferenciado)
+& Descarga automática directa. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Que dos de las cinco fuentes \emph{oficiales} no admitan descarga
+programática es, en sí mismo, un resultado del trabajo y no un contratiempo
+de plomería. El módulo de adquisición no aborta cuando una fuente cae:
+registra el fallo con su fecha en \texttt{logs/acquisition\_summary.json},
+usa la copia local si existe y continúa. Ese archivo se muestra tal cual en
+el panel.
+
+La suma de la población del Directorio del INEI para los tres departamentos
+es de 3{,}356{,}495 habitantes (Piura 1{,}856{,}809; Loreto 883{,}510;
+Ayacucho 616{,}176), cifras que coinciden con los totales departamentales
+publicados del Censo 2017 y que sirven como verificación externa del cruce.
+
+% ===========================================================================
+\section{Metodología}
+% ===========================================================================
+
+\subsection{Validación y limpieza (Fase 1)}
+
+Sobre la oferta se aplicaron seis reglas de calidad. Ninguna descarta
+registros en silencio: cada fila marcada conserva su columna \texttt{flag\_*}
+en \texttt{data/processed/}, y el reporte documenta cuántos registros se
+marcaron, qué se hizo y por qué (tabla~\ref{tab:calidad-oferta}).
+
+\begin{table}[H]
+\centering
+\caption{Reglas de calidad aplicadas a la oferta (RENIPRESS).}
+\label{tab:calidad-oferta}
+\footnotesize
+\input{tables/informe_calidad_oferta.tex}
+\end{table}
+
+El hallazgo grueso es el primero: \textbf{el 23.45\,\% de los
+establecimientos del registro no tiene coordenadas}. Sin latitud y longitud
+no hay forma de calcular un tiempo de viaje, así que esos registros se
+conservan con su bandera pero quedan fuera del enrutamiento. Como se discute
+en la sección de limitaciones, esto sesga el resultado en dirección
+conocida: hacia tiempos \emph{optimistas} si los establecimientos sin
+coordenada están distribuidos como los demás, y hacia tiempos pesimistas si
+se concentran en zonas mal cubiertas.
+
+Sobre la demanda se aplicaron las mismas reglas
+(tabla~\ref{tab:calidad-demanda} en el anexo): los centros poblados vienen
+mucho más limpios, con 370 puntos (1.9\,\%) fuera del polígono de su propio
+distrito declarado. Esos casos se mantienen con advertencia porque no se
+puede saber, sin verificación de campo, si el error está en la coordenada o
+en el ubigeo declarado.
+
+La población se empató por el código CCPP de 10 dígitos del Censo 2017. El
+cruce cubre 12{,}509 de los 19{,}460 centros poblados (64.3\,\%). El 35.6\,\%
+restante no proviene del Censo 2017 según la propia columna de procedencia
+del archivo de SIGMED, de modo que \emph{ninguna} fuente de población por
+centro poblado puede cubrirlo. Esos puntos se conservan con
+\texttt{poblacion\_censada} nula y pesan cero en todo agregado ponderado, en
+vez de imputarles una población inventada.
+
+\subsection{Enrutamiento (Fase 2)}
+
+Los tiempos se calculan con OSRM \cite{osrm} compilado sobre el extracto
+peruano de OpenStreetMap, en tres perfiles (automóvil, bicicleta y a pie)
+servidos por Docker. Para cada centro poblado de la muestra se calcula la
+matriz completa origen--destino contra \emph{todas} las instalaciones
+resolutivas --- no solo contra la más cercana en línea recta --- porque la
+más cercana en distancia euclidiana no es necesariamente la más cercana en
+tiempo de viaje cuando hay un río o una cordillera de por medio.
+
+\textbf{Muestreo.} Calcular la matriz completa para los 19{,}460 centros
+poblados contra las 58 instalaciones resolutivas es innecesariamente caro, de
+modo que se tomó una muestra estratificada por distrito de 5{,}002 puntos
+(25.7\,\% del universo, semilla fija 42). Todos los agregados aplican el peso
+de diseño del muestreo además de la población censada; sin ese peso, los
+distritos con muchos centros poblados pequeños quedarían sistemáticamente
+subrepresentados.
+
+\textbf{Enganche a la red vial.} Cada punto se proyecta al eje vial más
+cercano dentro de un radio de 1{,}000 metros
+(tabla~\ref{tab:snapping}). El resultado es la primera señal fuerte del
+problema amazónico:
+
+\begin{table}[H]
+\centering
+\caption{Enganche de los puntos a la red vial, por perfil.}
+\label{tab:snapping}
+\footnotesize
+\input{tables/informe_snapping.tex}
+\end{table}
+
+El 38.3\,\% de los centros poblados muestreados no tiene ninguna vía
+transitable en automóvil a menos de un kilómetro, mientras que el 100\,\% de
+los establecimientos de salud sí la tiene. Los establecimientos están donde
+están las carreteras; buena parte de la población, no.
+
+\textbf{Puntos no enrutables.} Para los 98 puntos (2.0\,\% de la muestra) sin
+ninguna ruta a un establecimiento resolutivo se dispone de un respaldo por
+distancia en línea recta corregida por un factor de desvío. Ese factor no es
+un número inventado: se calibra empíricamente comparando distancia de red
+contra distancia euclidiana en los pares que sí se lograron enrutar. Las
+filas estimadas de esa manera quedan marcadas con
+\texttt{estimado\_por\_fallback} y \textbf{no} entran en las métricas de este
+informe, que las reportan aparte como ``sin acceso enrutable''.
+
+\subsection{Métricas (Fase 3)}
+
+Para cada punto de demanda $i$ se define $t_i$ como el mínimo tiempo de viaje
+hacia cualquier instalación resolutiva. El peso efectivo de cada punto es
+$w_i = p_i \cdot d_i$, con $p_i$ la población censada 2017 y $d_i$ el peso de
+diseño del muestreo. Sobre esa base se calculan: la distribución de población
+por banda de tiempo; la media ponderada $\bar{t} = \sum w_i t_i / \sum w_i$
+agregada por distrito, provincia y departamento; el ranking de brechas
+críticas; el índice de Gini ponderado del tiempo de acceso, con su curva de
+Lorenz \cite{lorenz,gini}; el contraste urbano/rural; y la correlación de
+Spearman entre altitud y tiempo.
+
+Un punto sin población conocida pesa cero: no entra ni al numerador ni al
+denominador de ningún promedio, en vez de propagar un valor nulo a todo el
+resultado. Un punto sin ruta calculada tampoco entra a la media, pero se
+reporta explícitamente en una categoría propia, para que un distrito con
+tiempo medio bajo y 30\,\% de cobertura no se lea como un distrito bien
+servido.
+
+\textbf{Clasificación urbano/rural.} El extracto de SIGMED no trae la
+variable oficial de área urbana del INEI, que se define por densidad de
+manzanas censales contiguas. Se usó como aproximación la capitalidad
+político-administrativa: es urbano el centro poblado que es capital de
+distrito, provincia o departamento. Es un \emph{proxy} y como tal se reporta;
+sus tres debilidades conocidas se detallan en la sección de limitaciones.
+
+\subsection{Panel interactivo (Fase 4)}
+
+El panel de Streamlit (\texttt{app/dashboard.py}) presenta las mismas cifras
+en ocho pestañas y permite filtrar por departamento y por zona. La decisión
+de diseño que vale la pena señalar es que el panel \textbf{no reimplementa
+ninguna métrica}: al mover un filtro, vuelve a llamar a las funciones de
+\texttt{src/metrics.py} sobre el subconjunto filtrado. Panel e informe no
+pueden divergir porque leen la misma función; un test automatizado verifica
+justamente eso, comparando la tabla que recalcula el panel sin filtros contra
+el CSV que cita este documento.
+
+El panel abre en segundos y no necesita OSRM, Docker ni geopandas: consume
+los parquet precalculados que deja \texttt{run\_fase4.py}, y los límites
+distritales recortados a los tres departamentos (178 KB en vez de 1.9 MB).
+
+% ===========================================================================
+\section{Resultados}
+% ===========================================================================
+
+\subsection{Cobertura: el promedio esconde tres países}
+
+\begin{table}[H]
+\centering
+\caption{Población estimada por banda de tiempo de acceso al establecimiento
+resolutivo más cercano, en automóvil.}
+\label{tab:cobertura}
+\small
+\input{tables/informe_cobertura_bandas.tex}
+\end{table}
+
+El 71.8\,\% de la población representada llega en menos de media hora. Leído
+solo, ese número sugiere un sistema razonablemente accesible. La
+figura~\ref{fig:cobertura} muestra por qué esa lectura es equivocada: al
+desagregar por departamento, el mismo indicador va de 81\,\% en Piura a
+35\,\% en Ayacucho, y en Loreto el 32\,\% de la población necesita más de dos
+horas y un 8\,\% adicional no tiene ninguna ruta.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{fig_cobertura_bandas.png}
+\caption{Población por banda de tiempo de acceso. A la izquierda, el
+agregado de los tres departamentos; a la derecha, la misma métrica desagregada.
+El agregado está dominado por Piura, que concentra la mayor parte de la
+población de la muestra.}
+\label{fig:cobertura}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Tiempo medio ponderado por población, por departamento.}
+\label{tab:departamentos}
+\footnotesize
+\input{tables/informe_departamentos.tex}
+\end{table}
+
+La distancia entre los tres es de otro orden de magnitud: 20.6 minutos en
+Piura, 67.2 en Ayacucho y 703.1 en Loreto, es decir, casi doce horas de
+promedio ponderado. Conviene ser explícito sobre qué significa ese número:
+no es el tiempo de un viaje real en Loreto, es el tiempo que tomaría el viaje
+\emph{si se hiciera por carretera}, y el hecho de que sea absurdo es
+precisamente la medida de cuán irrelevante es la red vial en esa región.
+
+\subsection{Distribución territorial}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{fig_mapa_acceso.png}
+\caption{Tiempo medio distrital ponderado por población. Los distritos en
+gris claro tienen ruta calculada para todos sus puntos muestreados pero
+ninguno de sus centros poblados empató con el Censo 2017, de modo que no
+admiten media ponderada: gris no significa mal acceso, significa ausencia de
+dato de población. Los puntos azules son los 58 establecimientos
+resolutivos.}
+\label{fig:mapa}
+\end{figure}
+
+El mapa hace visible la asimetría de la oferta: 32 de los 58 establecimientos
+resolutivos están en Piura, 14 en Loreto (un departamento casi diez veces más
+extenso) y 12 en Ayacucho. Más revelador todavía: \textbf{solo 23 de los 237
+distritos con población en los tres departamentos tienen algún
+establecimiento resolutivo dentro de sus límites}. El otro 90\,\% depende
+enteramente de la calidad de su conexión vial con el distrito vecino.
+
+\begin{table}[H]
+\centering
+\caption{Los diez distritos con peor acceso. El ranking completo de quince
+está en \texttt{data/outputs/\allowbreak critical\_gap\_ranking.csv}.}
+\label{tab:ranking}
+\footnotesize
+\input{tables/informe_ranking.tex}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{fig_ranking_criticos.png}
+\caption{Los quince distritos con peor acceso medio. Los quince están en
+Loreto.}
+\label{fig:ranking}
+\end{figure}
+
+Los quince distritos con peor acceso están todos en Loreto, encabezados por
+Ramón Castilla y Yavarí, en la frontera con Colombia y Brasil, con medias
+superiores a las 80 horas. Interpretar literalmente esas 80 horas sería un
+error: lo que dicen es que el trayecto por carretera es tan indirecto que
+deja de ser una descripción del acceso real, que allí es fluvial. El valor
+del dato no está en la magnitud sino en el orden: identifica sin ambigüedad
+dónde la red vial no cumple ninguna función sanitaria.
+
+\subsection{Equidad: el acceso está concentrado}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.49\textwidth}
+\centering
+\includegraphics[width=\textwidth]{fig_lorenz.png}
+\end{minipage}
+\hfill
+\begin{minipage}{0.49\textwidth}
+\centering
+\includegraphics[width=0.95\textwidth]{fig_urbano_rural.png}
+\end{minipage}
+\caption{Izquierda: curva de Lorenz del tiempo de viaje. Derecha: contraste
+urbano/rural.}
+\label{fig:equidad}
+\end{figure}
+
+El índice de Gini del tiempo de acceso es de \textbf{0.919}, calculado sobre
+2{,}417 puntos con tiempo y población conocidos. La interpretación correcta
+no es ``el acceso es malo'' sino ``el tiempo total de viaje está
+extremadamente concentrado'': la gran mayoría de la población acumula una
+fracción mínima del tiempo agregado, y ese tiempo se concentra en una
+minoría rural y amazónica. Dos territorios con idéntico tiempo medio pueden
+tener Gini muy distinto según repartan la demora entre pocos o entre todos.
+
+\begin{table}[H]
+\centering
+\caption{Contraste de acceso entre zonas urbanas y rurales.}
+\label{tab:urbano-rural}
+\small
+\input{tables/informe_urbano_rural.tex}
+\end{table}
+
+La brecha rural/urbana es de 2.3 veces (214.2 minutos frente a 92.6). Hay que
+leerla con cuidado por el tamaño de los grupos: solo 64 de los 5{,}002 puntos
+de la muestra son capital de algo. Que incluso el grupo ``urbano'' promedie
+más de hora y media revela que la capitalidad administrativa no garantiza
+proximidad a un hospital resolutivo: una capital distrital de Loreto sigue
+estando a días de uno.
+
+\subsection{El modo de viaje cambia la respuesta}
+
+\begin{table}[H]
+\centering
+\caption{Tiempo al establecimiento resolutivo más cercano según modo.}
+\label{tab:modos}
+\small
+\input{tables/informe_modos.tex}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{fig_modos.png}
+\caption{Distribución del tiempo de viaje por modo, en escala logarítmica.}
+\label{fig:modos}
+\end{figure}
+
+Ir a pie toma, en la mediana, 11.2 veces más que ir en automóvil; en
+bicicleta, 4.2 veces más. La consecuencia práctica es que un indicador de
+accesibilidad construido sobre el supuesto de automóvil disponible describe
+la situación de quien tiene automóvil, no la de la población.
+
+La comparación exigida por la consigna --- a pie contra todos los
+establecimientos frente a automóvil contra los resolutivos, sobre los
+centros poblados urbanos --- muestra además que el establecimiento más
+cercano \textbf{cambia con el modo en 84 de 234 puntos (36\,\%)}. Es decir:
+en más de un tercio de los casos, la política de ``derivar al establecimiento
+más cercano'' apunta a un lugar distinto según cómo se viaje. Quince de esos
+puntos urbanos no tienen siquiera ruta peatonal calculable.
+
+\subsection{Altitud y acceso: una correlación que no debe leerse como causa}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{fig_altitud.png}
+\caption{Altitud del centro poblado frente a tiempo de acceso, en escala
+logarítmica, por departamento.}
+\label{fig:altitud}
+\end{figure}
+
+La correlación de Spearman entre altitud y tiempo de acceso es de
+$\rho = 0.140$ ($p < 10^{-22}$, $n = 4{,}904$): estadísticamente
+significativa y sustantivamente irrelevante. La figura~\ref{fig:altitud}
+explica por qué. Los peores tiempos no están en las cumbres de Ayacucho
+(zona parda, entre 3{,}000 y 4{,}500 msnm, con tiempos concentrados alrededor
+de la hora y media) sino en la Amazonía baja de Loreto (zona verde azulada,
+por debajo de los 200 msnm, con tiempos que llegan a los miles de minutos).
+De hecho, al calcular la correlación solo dentro de Loreto, el signo se
+invierte ($\rho = -0.161$).
+
+Esto es un caso de manual de correlación observacional entre dos efectos de
+una causa común. La altitud y el tiempo de viaje son ambos consecuencias del
+relieve, que determina la densidad de la red vial y la dispersión de la
+población. Con estos datos no es posible aislar un efecto causal de la
+altitud en sí, y el informe no lo pretende: la asociación se describe, no se
+interpreta causalmente. La nota correspondiente viaja además dentro del
+propio CSV exportado, para que no se pierda si alguien reutiliza la tabla
+fuera de este documento.
+
+% ===========================================================================
+\section{Discusión}
+% ===========================================================================
+
+Tres conclusiones sustantivas se sostienen sobre los resultados anteriores.
+
+\textbf{Primera: el problema no es la cantidad de establecimientos, es su
+distribución y su categoría.} Los tres departamentos tienen 2{,}844
+establecimientos de salud georreferenciados, pero solo 58 son resolutivos.
+El primer nivel de atención existe y está razonablemente distribuido; lo que
+falta es capacidad resolutiva a distancia razonable. Cualquier política que
+mida ``acceso a un establecimiento de salud'' sin distinguir categoría
+reportará una cobertura excelente sobre un problema que sigue intacto.
+
+\textbf{Segunda: en Loreto, medir el acceso por carretera es medir la cosa
+equivocada.} El 38\,\% de los centros poblados sin vía a menos de un
+kilómetro, el 8\,\% de la población sin ninguna ruta y las medias de más de
+80 horas no son ruido: son la constatación cuantitativa de que el transporte
+relevante allí es fluvial. Este trabajo no puede medir el acceso real
+amazónico, y decirlo con claridad es más útil que producir un número
+verosímil pero falso.
+
+\textbf{Tercera: la desigualdad es más informativa que el promedio.} Un Gini
+de 0.919 sobre el tiempo de viaje indica que el sistema funciona bien para la
+mayoría y muy mal para una minoría identificable geográficamente. Esa
+minoría no se ve en ningún promedio departamental, pero aparece de inmediato
+en el ranking distrital, que es la unidad sobre la que efectivamente se
+asignan presupuestos.
+
+% ===========================================================================
+\section{Limitaciones}
+% ===========================================================================
+
+Se listan ordenadas por su capacidad de alterar las conclusiones.
+
+\begin{enumerate}[leftmargin=1.4em]
+
+\item \textbf{El modelo no representa el transporte fluvial.} Es la
+limitación dominante. OSRM enruta sobre la red vial de OpenStreetMap; los
+ríos amazónicos, que son las vías reales de Loreto, no están en esa red.
+Todos los tiempos de Loreto deben leerse como ``tiempo por carretera si
+existiera'', no como tiempo de traslado real. Corregirlo exigiría una red
+fluvial navegable con velocidades por tipo de embarcación, que no existe como
+dato abierto para el Perú.
+
+\item \textbf{El 23.45\,\% de los establecimientos no tiene coordenadas.} Se
+excluyeron del enrutamiento 872 de 3{,}718 registros de RENIPRESS. Si esos
+establecimientos estuvieran distribuidos como los demás, el sesgo sería
+pequeño; si se concentraran en zonas periféricas --- lo más probable, porque
+el registro se completa mejor en establecimientos grandes y urbanos ---, los
+tiempos aquí reportados serían \emph{pesimistas} en esas zonas. No es posible
+determinar la dirección del sesgo con la información disponible.
+
+\item \textbf{390 establecimientos no tienen categoría legible en el
+registro} y quedaron clasificados como \texttt{SIN\_CATEGORIA}, es decir, no
+resolutivos. Si alguno de ellos fuera en realidad de categoría II o III, el
+tiempo de acceso de su entorno estaría sobreestimado. Es una fuente de sesgo
+en una sola dirección: los tiempos reportados nunca son mejores de lo real
+por esta causa, solo peores.
+
+\item \textbf{La población está incompleta en el 35.6\,\% de los centros
+poblados.} Solo se pudo empatar población censada a los centros poblados con
+código del Censo 2017. Los puntos sin población pesan cero, de modo que las
+métricas ponderadas describen a la población \emph{con población conocida},
+no al total. Seis distritos --- entre ellos Veintiséis de Octubre (Piura) y
+San Juan Bautista (Ayacucho), ambos urbanos y densamente poblados --- quedan
+sin media ponderable por esta causa.
+
+\item \textbf{La expansión por pesos de muestreo sobreestima la población
+total en aproximadamente 17\,\%.} La suma ponderada da 3{,}940{,}199
+habitantes frente a los 3{,}356{,}495 del Directorio del INEI. La causa es
+que dentro de cada distrito el muestreo fue uniforme, no proporcional a la
+población, y los centros poblados que sí empataron con el Censo tienden a ser
+más grandes que el promedio de su distrito. Los \emph{porcentajes} por banda
+son robustos a este sesgo, porque afecta numerador y denominador; los
+\emph{niveles absolutos} de población deben leerse como órdenes de magnitud.
+
+\item \textbf{La muestra cubre el 25.7\,\% de los centros poblados.} La
+estratificación por distrito garantiza que ningún distrito quede fuera, pero
+dentro de cada distrito la selección fue aleatoria uniforme. Los intervalos
+de confianza de las medias distritales con pocos puntos muestreados son, en
+consecuencia, amplios; el informe no los reporta y esa es una deuda
+metodológica declarada.
+
+\item \textbf{La clasificación urbano/rural es un \emph{proxy}
+administrativo.} No es la definición del INEI. Una capital distrital
+amazónica de doscientos habitantes queda clasificada como urbana, y un centro
+poblado grande conurbado con una capital queda como rural. La brecha de 2.3
+veces debe leerse como una comparación entre ``capitales'' y ``no
+capitales'', que es lo que efectivamente se midió.
+
+\item \textbf{Los tiempos de OSRM son de flujo libre.} No modelan
+congestión, estado de la vía, época de lluvias ni disponibilidad efectiva de
+vehículo. En la sierra y la selva, una vía afirmada en temporada de lluvias
+puede ser intransitable durante semanas. Todos los tiempos son, en ese
+sentido, un límite inferior optimista.
+
+\item \textbf{El modelo mide distancia-tiempo, no atención.} Un
+establecimiento resolutivo abierto en el registro puede no tener
+especialista, insumos o cama disponible en el momento de la emergencia. El
+acceso geográfico es una condición necesaria pero no suficiente, y este
+trabajo solo mide esa condición necesaria.
+
+\item \textbf{Los límites distritales provienen de la geometría censal de
+2007} y no reflejan las creaciones y modificaciones distritales posteriores.
+Un distrito de Piura llega además con la geometría vacía en la fuente y no
+aparece en el mapa. El efecto sobre las métricas es nulo (el ubigeo se usa
+para agrupar, no la geometría), pero afecta a la cartografía.
+
+\end{enumerate}
+
+% ===========================================================================
+\section{Conclusiones y recomendaciones}
+% ===========================================================================
+
+\begin{enumerate}[leftmargin=1.4em]
+\item El 71.8\,\% de la población estimada de los tres departamentos alcanza
+un establecimiento resolutivo en menos de 30 minutos por carretera, pero ese
+promedio agrega realidades incomparables: 81\,\% en Piura, 35\,\% en
+Ayacucho, 50\,\% en Loreto con un 32\,\% adicional a más de dos horas.
+
+\item La desigualdad del acceso (Gini 0.919) es tan informativa como el nivel
+promedio, y ubica el problema en una minoría geográficamente identificable:
+los distritos fronterizos y ribereños de Loreto.
+
+\item Solo 23 de 237 distritos cuentan con un establecimiento resolutivo
+propio. La política relevante no es construir más postas, sino elevar la
+capacidad resolutiva de establecimientos existentes en nodos bien conectados,
+o garantizar transporte de emergencia desde los nodos peor conectados.
+
+\item Para Loreto, cualquier indicador de accesibilidad basado en red vial es
+inadecuado por construcción. La recomendación metodológica es explícita:
+antes de invertir en más modelamiento vial de la Amazonía, hay que producir
+el dato que falta, que es una red fluvial navegable con velocidades por tipo
+de embarcación.
+
+\item El modo de viaje importa: a pie los tiempos se multiplican por 11 y en
+un tercio de los casos cambia cuál es el establecimiento más cercano. Los
+indicadores oficiales de accesibilidad deberían declarar el modo que suponen.
+\end{enumerate}
+
+% ===========================================================================
+\section{Reproducibilidad}
+% ===========================================================================
+
+El repositorio completo se reproduce con cinco comandos, tras instalar las
+dependencias y levantar OSRM con Docker:
+
+\begin{quote}\ttfamily
+python -m src.acquisition\\
+python run\_fase1.py \&\& python run\_fase1\_demanda.py\\
+python run\_fase2.py\\
+python run\_fase3.py\\
+python run\_fase4.py \&\& python run\_fase5.py
+\end{quote}
+
+Los pasos 4 y 5 no requieren OSRM: consumen las matrices ya calculadas y
+versionadas en \texttt{data/processed/}. El panel se levanta con
+\texttt{streamlit run app/dashboard.py} y la suite de pruebas
+(\texttt{pytest -m "not osrm"}) cubre las reglas de validación, las métricas
+y el contrato entre el panel y \texttt{src/metrics.py}.
+
+Ningún parámetro está escrito dentro del código: departamentos, categorías
+resolutivas, umbrales de banda, radio de enganche, tamaño de muestra, semilla
+aleatoria y puertos de OSRM viven en \texttt{config.md}, que es a la vez la
+documentación legible y la fuente que consume el código.
+
+% ===========================================================================
+\appendix
+\section{Anexo: reporte de calidad de la demanda}
+% ===========================================================================
+
+\begin{table}[H]
+\centering
+\caption{Reglas de calidad aplicadas a la demanda (centros poblados de
+SIGMED).}
+\label{tab:calidad-demanda}
+\footnotesize
+\input{tables/informe_calidad_demanda.tex}
+\end{table}
+
+Las justificaciones completas de cada regla, con el texto íntegro que
+acompaña a cada acción, están en los archivos
+\texttt{data\_quality\_\allowbreak report.csv} y
+\texttt{data\_quality\_\allowbreak report\_\allowbreak demanda.csv} del
+directorio \texttt{data/outputs/}, y se muestran completas en la pestaña
+``Calidad de datos'' del panel.
+
+% ===========================================================================
+\begin{thebibliography}{9}
+
+\bibitem{osrm}
+Luxen, D. y Vetter, C. (2011).
+\emph{Real-time routing with OpenStreetMap data}.
+Proceedings of the 19th ACM SIGSPATIAL International Conference on Advances
+in Geographic Information Systems, pp. 513--516.
+
+\bibitem{lorenz}
+Lorenz, M. O. (1905).
+\emph{Methods of measuring the concentration of wealth}.
+Publications of the American Statistical Association, 9(70), pp. 209--219.
+
+\bibitem{gini}
+Gini, C. (1912).
+\emph{Variabilità e mutabilità}.
+Bologna: Tipografia di Paolo Cuppini.
+
+\bibitem{renipress}
+SUSALUD. \emph{Registro Nacional de Instituciones Prestadoras de Servicios de
+Salud (RENIPRESS)}. Portal Nacional de Datos Abiertos del Perú.
+\url{https://www.datosabiertos.gob.pe}
+
+\bibitem{sigmed}
+MINEDU. \emph{Sistema de Información Geográfica de la Educación (SIGMED),
+capa de centros poblados}. \url{https://sigmed.minedu.gob.pe/descargas/}
+
+\bibitem{inei}
+INEI (2018). \emph{Directorio Nacional de Centros Poblados. Censos Nacionales
+2017: XII de Población, VII de Vivienda y III de Comunidades Indígenas}.
+Publicación Lib1541.
+
+\bibitem{osm}
+OpenStreetMap contributors (2026). \emph{Extracto de Perú}. Geofabrik.
+\url{https://download.geofabrik.de/south-america/peru-latest.osm.pbf}
+
+\bibitem{geojson}
+Repositorio público \texttt{juaneladio/\allowbreak peru-geojson}: límites departamentales,
+provinciales y distritales del Perú derivados de la cartografía censal del
+INEI (2007). \url{https://github.com/juaneladio/peru-geojson}
+
+\end{thebibliography}
+
+\end{document}

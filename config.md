@@ -178,7 +178,7 @@ enrutamiento:
     semilla_aleatoria: 42
   fallback_no_enrutable:
     permitir_linea_recta: true
-    factor_desvio_default: 1.35   # debe recalibrarse empíricamente (ver validate_deviation_factor en routing.py)
+    factor_desvio_default: 1.59   # Recalibrado empíricamente, ver validate_deviation_factor en routing.py
 
 # ---------------------------------------------------------------------------
 # MÉTRICAS (Fase 3)

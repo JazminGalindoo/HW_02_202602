@@ -248,8 +248,6 @@ panel) y genera:
 - `report/informe.tex` — el informe (12 páginas), que incluye una sección de
   **Limitaciones** con las doce que pueden alterar las conclusiones,
   ordenadas por impacto y con la dirección del sesgo cuando se conoce.
-- `report/guion_video.md` — guion de la presentación en video, minuto a
-  minuto, apoyado en el panel.
 
 El PDF compilado (`report/informe.pdf`) está versionado para que no haga
 falta una distribución LaTeX solo para leerlo.
@@ -279,7 +277,6 @@ data/
 report/
   informe.tex / informe.pdf            # Fase 5 — informe final
   figures/ · tables/                    # generados por run_fase5.py
-  guion_video.md                         # guion de la presentación
 tests/
   test_validation.py · test_routing.py · test_metrics.py
   test_dashboard.py · test_informe.py
